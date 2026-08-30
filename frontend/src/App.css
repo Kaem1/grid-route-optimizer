@@ -1,0 +1,147 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #000;
+  color: #e5e7eb;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: #111318;
+  border-bottom: 1px solid #262a33;
+  flex-shrink: 0;
+}
+
+.topbar h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.side-panel {
+  width: 220px;
+  flex-shrink: 0;
+  background: #111318;
+  border-right: 1px solid #262a33;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.side-panel h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.side-panel label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.side-panel input[type="number"] {
+  width: 70px;
+  background: #1b1e26;
+  border: 1px solid #333844;
+  color: inherit;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.view-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.view-buttons button,
+.topbar button {
+  background: #1b1e26;
+  border: 1px solid #333844;
+  color: inherit;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.view-buttons button:hover,
+.topbar button:hover {
+  border-color: #4a90ff;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+.swatch-active {
+  background: rgba(47, 111, 237, 0.65);
+  border: 1px solid #2f6fed;
+}
+
+.swatch-wall {
+  background: #ff5544;
+}
+
+.grid-area {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.grid-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.grid-canvas canvas {
+  display: block;
+}
+
+.statusbar {
+  display: flex;
+  gap: 24px;
+  padding: 6px 16px;
+  background: #111318;
+  border-top: 1px solid #262a33;
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}

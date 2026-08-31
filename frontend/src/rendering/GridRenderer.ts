@@ -7,24 +7,29 @@ export const CELL_SIZE = 48;
 const EDGE_BAND = 10;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 4;
-const DRAG_THRESHOLD = 4;
 const WALL_THICKNESS = CELL_SIZE * 0.34;
 
 const COLOR_GRID_LINE = 0x333333;
 const COLOR_CELL_ACTIVE = 0x2f6fed;
 const COLOR_WALL = 0xff5544;
 const COLOR_HOVER = 0xffffff;
+const COLOR_START = 0xffd23f;
+const START_RADIUS = CELL_SIZE * 0.3;
+
+export type EditTool = "select" | "start";
 
 export interface BoardSnapshot {
   cols: number;
   rows: number;
   activeVertices: ReadonlySet<string>;
   walls: ReadonlySet<string>;
+  startPoints: ReadonlySet<string>;
 }
 
 export interface GridRendererCallbacks {
-  onVertexClick: (id: string) => void;
-  onEdgeClick: (key: string, a: string, b: string) => void;
+  onVertexPaint: (id: string, active: boolean) => void;
+  onEdgePaint: (key: string, a: string, b: string, active: boolean) => void;
+  onStartPointPaint: (id: string, active: boolean) => void;
 }
 
 type HitResult =
@@ -72,18 +77,33 @@ export class GridRenderer {
   private readonly gridLayer = new Graphics();
   private readonly cellsLayer = new Graphics();
   private readonly wallsLayer = new Graphics();
+  private readonly startLayer = new Graphics();
   private readonly hoverLayer = new Graphics();
 
-  private snapshot: BoardSnapshot = { cols: 0, rows: 0, activeVertices: new Set(), walls: new Set() };
+  private snapshot: BoardSnapshot = { cols: 0, rows: 0, activeVertices: new Set(), walls: new Set(), startPoints: new Set() };
 
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
 
-  private isPointerDown = false;
-  private hasDragged = false;
-  private dragStartScreen = { x: 0, y: 0 };
-  private dragStartOffset = { x: 0, y: 0 };
+  // Whether the board can currently be edited (left-button paint). Panning/zoom always work.
+  private editable = true;
+
+  // Which left-button action is currently selected: normal select/paint, or start-point placement.
+  private tool: EditTool = "select";
+
+  // Right-button drag pans the view.
+  private isPanning = false;
+  private panStartScreen = { x: 0, y: 0 };
+  private panStartOffset = { x: 0, y: 0 };
+
+  // Left-button drag keeps applying the same action (add/remove) to whatever
+  // kind of target (vertex or edge) was under the pointer on mouse down.
+  // "eraseStart" is a special stroke: the first click on a cell that has a
+  // start-point marker only clears the marker instead of touching the cell.
+  private paintMode: "vertex" | "edge" | "start" | "eraseStart" | null = null;
+  private paintValue = false;
+  private paintedIds = new Set<string>();
 
   private hovered: HitResult = { kind: "none" };
   private initialized = false;
@@ -104,7 +124,7 @@ export class GridRenderer {
 
     this.container.appendChild(this.app.canvas);
 
-    this.world.addChild(this.gridLayer, this.cellsLayer, this.wallsLayer, this.hoverLayer);
+    this.world.addChild(this.gridLayer, this.cellsLayer, this.wallsLayer, this.startLayer, this.hoverLayer);
     this.app.stage.addChild(this.world);
 
     this.app.stage.eventMode = "static";
@@ -115,6 +135,7 @@ export class GridRenderer {
     this.app.stage.on("pointerup", this.handlePointerUp);
     this.app.stage.on("pointerupoutside", this.handlePointerUp);
     this.app.canvas.addEventListener("wheel", this.handleWheel, { passive: false });
+    this.app.canvas.addEventListener("contextmenu", this.handleContextMenu);
 
     this.app.renderer.on("resize", () => {
       this.app.stage.hitArea = this.app.screen;
@@ -126,6 +147,7 @@ export class GridRenderer {
   destroy(): void {
     if (!this.initialized) return;
     this.app.canvas.removeEventListener("wheel", this.handleWheel);
+    this.app.canvas.removeEventListener("contextmenu", this.handleContextMenu);
     this.app.destroy(true, { children: true });
     this.initialized = false;
   }
@@ -133,6 +155,25 @@ export class GridRenderer {
   update(snapshot: BoardSnapshot): void {
     this.snapshot = snapshot;
     this.draw();
+  }
+
+  // Toggling out of edit mode cancels any in-progress paint stroke and clears hover.
+  setEditable(editable: boolean): void {
+    this.editable = editable;
+    if (!editable) {
+      this.paintMode = null;
+      this.paintedIds.clear();
+      if (this.hovered.kind !== "none") {
+        this.hovered = { kind: "none" };
+        this.drawHover();
+      }
+    }
+  }
+
+  setTool(tool: EditTool): void {
+    this.tool = tool;
+    this.paintMode = null;
+    this.paintedIds.clear();
   }
 
   zoomIn = (): void => {
@@ -183,6 +224,10 @@ export class GridRenderer {
     this.applyTransform();
   }
 
+  private handleContextMenu = (e: Event): void => {
+    e.preventDefault();
+  };
+
   private handleWheel = (e: WheelEvent): void => {
     e.preventDefault();
     const rect = this.app.canvas.getBoundingClientRect();
@@ -193,30 +238,66 @@ export class GridRenderer {
   };
 
   private handlePointerDown = (e: FederatedPointerEvent): void => {
-    this.isPointerDown = true;
-    this.hasDragged = false;
-    this.dragStartScreen = { x: e.global.x, y: e.global.y };
-    this.dragStartOffset = { x: this.offsetX, y: this.offsetY };
+    // Right button: pan only, never edits the board.
+    if (e.button === 2) {
+      this.isPanning = true;
+      this.panStartScreen = { x: e.global.x, y: e.global.y };
+      this.panStartOffset = { x: this.offsetX, y: this.offsetY };
+      return;
+    }
+
+    if (e.button !== 0 || !this.editable) return;
+
+    // Left button: start a paint stroke. The kind hit first (vertex or edge)
+    // locks the stroke; the resulting on/off value is re-applied to every new
+    // target the pointer passes over until release.
+    if (this.tool === "start") {
+      const hit = this.hitTest(e.global.x, e.global.y, "vertex");
+      if (hit.kind === "vertex" && this.snapshot.activeVertices.has(hit.id)) {
+        this.paintMode = "start";
+        this.paintValue = !this.snapshot.startPoints.has(hit.id);
+        this.paintedIds = new Set([hit.id]);
+        this.callbacks.onStartPointPaint(hit.id, this.paintValue);
+      }
+      return;
+    }
+
+    const hit = this.hitTest(e.global.x, e.global.y);
+    if (hit.kind === "vertex") {
+      if (this.snapshot.startPoints.has(hit.id)) {
+        // A cell carrying a start-point marker loses the marker first; the
+        // cell itself is only removed on a subsequent click/stroke.
+        this.paintMode = "eraseStart";
+        this.paintedIds = new Set([hit.id]);
+        this.callbacks.onStartPointPaint(hit.id, false);
+      } else {
+        this.paintMode = "vertex";
+        this.paintValue = !this.snapshot.activeVertices.has(hit.id);
+        this.paintedIds = new Set([hit.id]);
+        this.callbacks.onVertexPaint(hit.id, this.paintValue);
+      }
+    } else if (hit.kind === "edge") {
+      this.paintMode = "edge";
+      this.paintValue = !this.snapshot.walls.has(hit.key);
+      this.paintedIds = new Set([hit.key]);
+      this.callbacks.onEdgePaint(hit.key, hit.a, hit.b, this.paintValue);
+    }
   };
 
   private handlePointerMove = (e: FederatedPointerEvent): void => {
     const screenX = e.global.x;
     const screenY = e.global.y;
 
-    if (this.isPointerDown) {
-      const dx = screenX - this.dragStartScreen.x;
-      const dy = screenY - this.dragStartScreen.y;
-      if (!this.hasDragged && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-        this.hasDragged = true;
-      }
-      if (this.hasDragged) {
-        this.offsetX = this.dragStartOffset.x + dx;
-        this.offsetY = this.dragStartOffset.y + dy;
-        this.applyTransform();
-      }
+    if (this.isPanning) {
+      const dx = screenX - this.panStartScreen.x;
+      const dy = screenY - this.panStartScreen.y;
+      this.offsetX = this.panStartOffset.x + dx;
+      this.offsetY = this.panStartOffset.y + dy;
+      this.applyTransform();
+      return;
     }
 
-    if (this.hasDragged) {
+    if (!this.editable) {
       if (this.hovered.kind !== "none") {
         this.hovered = { kind: "none" };
         this.drawHover();
@@ -224,24 +305,57 @@ export class GridRenderer {
       return;
     }
 
-    const hit = this.hitTest(screenX, screenY);
+    if (this.paintMode === "start" || this.paintMode === "eraseStart") {
+      const hit = this.hitTest(screenX, screenY, "vertex");
+      if (hit.kind === "vertex" && !this.paintedIds.has(hit.id)) {
+        if (this.paintMode === "eraseStart") {
+          this.paintedIds.add(hit.id);
+          this.callbacks.onStartPointPaint(hit.id, false);
+        } else if (this.snapshot.activeVertices.has(hit.id)) {
+          this.paintedIds.add(hit.id);
+          this.callbacks.onStartPointPaint(hit.id, this.paintValue);
+        }
+      }
+      if (!hitEquals(hit, this.hovered)) {
+        this.hovered = hit;
+        this.drawHover();
+      }
+      return;
+    }
+
+    if (this.paintMode) {
+      const hit = this.hitTest(screenX, screenY, this.paintMode);
+      if (hit.kind === "vertex" && !this.paintedIds.has(hit.id)) {
+        this.paintedIds.add(hit.id);
+        this.callbacks.onVertexPaint(hit.id, this.paintValue);
+      } else if (hit.kind === "edge" && !this.paintedIds.has(hit.key)) {
+        this.paintedIds.add(hit.key);
+        this.callbacks.onEdgePaint(hit.key, hit.a, hit.b, this.paintValue);
+      }
+      if (!hitEquals(hit, this.hovered)) {
+        this.hovered = hit;
+        this.drawHover();
+      }
+      return;
+    }
+
+    const hit = this.hitTest(screenX, screenY, this.tool === "start" ? "vertex" : undefined);
     if (!hitEquals(hit, this.hovered)) {
       this.hovered = hit;
       this.drawHover();
     }
   };
 
-  private handlePointerUp = (e: FederatedPointerEvent): void => {
-    if (this.isPointerDown && !this.hasDragged) {
-      const hit = this.hitTest(e.global.x, e.global.y);
-      if (hit.kind === "vertex") this.callbacks.onVertexClick(hit.id);
-      else if (hit.kind === "edge") this.callbacks.onEdgeClick(hit.key, hit.a, hit.b);
-    }
-    this.isPointerDown = false;
-    this.hasDragged = false;
+  private handlePointerUp = (): void => {
+    this.isPanning = false;
+    this.paintMode = null;
+    this.paintedIds.clear();
   };
 
-  private hitTest(screenX: number, screenY: number): HitResult {
+  // `restrict` locks the search to one kind of target, used while a paint
+  // stroke is in progress so the cursor can't switch from painting edges to
+  // painting vertices (or vice versa) mid-drag.
+  private hitTest(screenX: number, screenY: number, restrict?: "vertex" | "edge"): HitResult {
     const worldX = (screenX - this.offsetX) / this.scale;
     const worldY = (screenY - this.offsetY) / this.scale;
     const { cols, rows, activeVertices } = this.snapshot;
@@ -252,34 +366,45 @@ export class GridRenderer {
 
     const localX = worldX - col * CELL_SIZE;
     const localY = worldY - row * CELL_SIZE;
-    const candidates: Array<[number, "left" | "right" | "top" | "bottom"]> = [
-      [localX, "left"],
-      [CELL_SIZE - localX, "right"],
-      [localY, "top"],
-      [CELL_SIZE - localY, "bottom"],
-    ];
-    candidates.sort((a, b) => a[0] - b[0]);
-    const [minDist, side] = candidates[0];
-
     const id = `${col},${row}`;
 
     // Only treat the pointer as being over an edge when both neighboring cells
     // are already part of the board — otherwise fall back to the cell itself.
-    if (minDist < EDGE_BAND) {
-      let ncol = col;
-      let nrow = row;
-      if (side === "left") ncol -= 1;
-      else if (side === "right") ncol += 1;
-      else if (side === "top") nrow -= 1;
-      else nrow += 1;
+    // Each border's hitbox is also excluded near its two corners so it doesn't
+    // bleed into the perpendicular border (e.g. dragging along a vertical
+    // wall no longer occasionally "catches" the horizontal wall it meets).
+    if (restrict !== "vertex") {
+      const candidates: Array<[number, "left" | "right" | "top" | "bottom"]> = [];
+      if (localY >= EDGE_BAND && localY <= CELL_SIZE - EDGE_BAND) {
+        candidates.push([localX, "left"], [CELL_SIZE - localX, "right"]);
+      }
+      if (localX >= EDGE_BAND && localX <= CELL_SIZE - EDGE_BAND) {
+        candidates.push([localY, "top"], [CELL_SIZE - localY, "bottom"]);
+      }
 
-      if (ncol >= 0 && nrow >= 0 && ncol < cols && nrow < rows) {
-        const neighborId = `${ncol},${nrow}`;
-        if (activeVertices.has(id) && activeVertices.has(neighborId)) {
-          return { kind: "edge", key: edgeKey(col, row, ncol, nrow), a: id, b: neighborId };
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => a[0] - b[0]);
+        const [minDist, side] = candidates[0];
+
+        if (minDist < EDGE_BAND) {
+          let ncol = col;
+          let nrow = row;
+          if (side === "left") ncol -= 1;
+          else if (side === "right") ncol += 1;
+          else if (side === "top") nrow -= 1;
+          else nrow += 1;
+
+          if (ncol >= 0 && nrow >= 0 && ncol < cols && nrow < rows) {
+            const neighborId = `${ncol},${nrow}`;
+            if (activeVertices.has(id) && activeVertices.has(neighborId)) {
+              return { kind: "edge", key: edgeKey(col, row, ncol, nrow), a: id, b: neighborId };
+            }
+          }
         }
       }
     }
+
+    if (restrict === "edge") return { kind: "none" };
 
     return { kind: "vertex", id };
   }
@@ -288,6 +413,7 @@ export class GridRenderer {
     this.drawGrid();
     this.drawCells();
     this.drawWalls();
+    this.drawStartPoints();
     this.drawHover();
   }
 
@@ -331,6 +457,20 @@ export class GridRenderer {
       this.wallsLayer.rect(rect.x, rect.y, rect.w, rect.h);
     }
     this.wallsLayer.fill({ color: COLOR_WALL });
+  }
+
+  private drawStartPoints(): void {
+    this.startLayer.clear();
+    const { startPoints } = this.snapshot;
+    if (startPoints.size === 0) return;
+
+    for (const id of startPoints) {
+      const [x, y] = parseVertexId(id);
+      const cx = x * CELL_SIZE + CELL_SIZE / 2;
+      const cy = y * CELL_SIZE + CELL_SIZE / 2;
+      this.startLayer.circle(cx, cy, START_RADIUS);
+    }
+    this.startLayer.fill({ color: COLOR_START });
   }
 
   private drawHover(): void {

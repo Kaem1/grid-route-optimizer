@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { type BoardSnapshot, GridRenderer } from "../rendering/GridRenderer";
+import { type BoardSnapshot, type EditTool, GridRenderer } from "../rendering/GridRenderer";
 
 export interface GridCanvasHandle {
   zoomIn: () => void;
@@ -10,12 +10,15 @@ export interface GridCanvasHandle {
 
 interface GridCanvasProps {
   snapshot: BoardSnapshot;
-  onVertexClick: (id: string) => void;
-  onEdgeClick: (key: string, a: string, b: string) => void;
+  editable: boolean;
+  tool: EditTool;
+  onVertexPaint: (id: string, active: boolean) => void;
+  onEdgePaint: (key: string, a: string, b: string, active: boolean) => void;
+  onStartPointPaint: (id: string, active: boolean) => void;
 }
 
 export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function GridCanvas(
-  { snapshot, onVertexClick, onEdgeClick },
+  { snapshot, editable, tool, onVertexPaint, onEdgePaint, onStartPointPaint },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,8 +26,8 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
   const dimsRef = useRef({ cols: snapshot.cols, rows: snapshot.rows });
 
   // Keep the latest callbacks without re-creating the renderer on every render.
-  const callbacksRef = useRef({ onVertexClick, onEdgeClick });
-  callbacksRef.current = { onVertexClick, onEdgeClick };
+  const callbacksRef = useRef({ onVertexPaint, onEdgePaint, onStartPointPaint });
+  callbacksRef.current = { onVertexPaint, onEdgePaint, onStartPointPaint };
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => rendererRef.current?.zoomIn(),
@@ -39,8 +42,9 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
 
     let cancelled = false;
     const renderer = new GridRenderer(container, {
-      onVertexClick: (id) => callbacksRef.current.onVertexClick(id),
-      onEdgeClick: (key, a, b) => callbacksRef.current.onEdgeClick(key, a, b),
+      onVertexPaint: (id, active) => callbacksRef.current.onVertexPaint(id, active),
+      onEdgePaint: (key, a, b, active) => callbacksRef.current.onEdgePaint(key, a, b, active),
+      onStartPointPaint: (id, active) => callbacksRef.current.onStartPointPaint(id, active),
     });
 
     renderer.init().then(() => {
@@ -49,6 +53,8 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
         return;
       }
       renderer.update(snapshot);
+      renderer.setEditable(editable);
+      renderer.setTool(tool);
       renderer.fitToGrid();
       rendererRef.current = renderer;
     });
@@ -58,7 +64,7 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
       rendererRef.current = null;
       renderer.destroy();
     };
-    // Renderer is created once; subsequent snapshot updates use the effect below.
+    // Renderer is created once; subsequent snapshot/editable/tool updates use the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -73,6 +79,14 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
       renderer.fitToGrid();
     }
   }, [snapshot]);
+
+  useEffect(() => {
+    rendererRef.current?.setEditable(editable);
+  }, [editable]);
+
+  useEffect(() => {
+    rendererRef.current?.setTool(tool);
+  }, [tool]);
 
   return <div ref={containerRef} className="grid-canvas" />;
 });

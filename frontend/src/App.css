@@ -67,6 +67,16 @@
   padding: 4px 6px;
 }
 
+.side-panel select {
+  width: 100%;
+  background: #1b1e26;
+  border: 1px solid #333844;
+  color: inherit;
+  border-radius: 4px;
+  padding: 6px;
+  font-size: 13px;
+}
+
 .view-buttons {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -74,7 +84,8 @@
 }
 
 .view-buttons button,
-.topbar button {
+.topbar button,
+.side-panel section > button {
   background: #1b1e26;
   border: 1px solid #333844;
   color: inherit;
@@ -84,8 +95,51 @@
 }
 
 .view-buttons button:hover,
-.topbar button:hover {
+.topbar button:hover,
+.side-panel section > button:hover:not(:disabled) {
   border-color: #4a90ff;
+}
+
+.side-panel section > button {
+  width: 100%;
+}
+
+.primary-button {
+  background: #2f6fed !important;
+  border-color: #2f6fed !important;
+  color: #fff;
+  font-weight: 600;
+}
+
+.primary-button:hover {
+  border-color: #4a90ff !important;
+}
+
+button:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.4;
+  margin: 10px 0 0;
+}
+
+.tool-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.tool-buttons button {
+  background: #1b1e26;
+  border: 1px solid #333844;
+  color: inherit;
+  border-radius: 4px;
+  padding: 6px 10px;
 }
 
 .legend {
@@ -118,6 +172,11 @@
 
 .swatch-wall {
   background: #ff5544;
+}
+
+.swatch-start {
+  background: #ffd23f;
+  border-radius: 50%;
 }
 
 .grid-area {

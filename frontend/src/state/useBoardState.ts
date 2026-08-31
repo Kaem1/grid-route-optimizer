@@ -10,8 +10,10 @@ export interface BoardState {
   rows: number;
   activeVertices: ReadonlySet<string>;
   walls: ReadonlySet<string>;
-  toggleVertex: (id: string) => void;
-  toggleEdge: (key: string, a: string, b: string) => void;
+  startPoints: ReadonlySet<string>;
+  setVertexActive: (id: string, active: boolean) => void;
+  setWallActive: (key: string, a: string, b: string, active: boolean) => void;
+  setStartPointActive: (id: string, active: boolean) => void;
   resize: (cols: number, rows: number) => void;
 }
 
@@ -23,44 +25,64 @@ export function useBoardState(initialCols: number, initialRows: number): BoardSt
   const [rows, setRows] = useState(initialRows);
   const [activeVertices, setActiveVertices] = useState<Set<string>>(() => new Set());
   const [walls, setWalls] = useState<Set<string>>(() => new Set());
+  const [startPoints, setStartPoints] = useState<Set<string>>(() => new Set());
 
-  const toggleVertex = useCallback(
-    (id: string) => {
-      const wasActive = activeVertices.has(id);
+  const setVertexActive = useCallback((id: string, active: boolean) => {
+    setActiveVertices((prev) => {
+      if (prev.has(id) === active) return prev;
+      const next = new Set(prev);
+      if (active) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
-      setActiveVertices((prev) => {
+    // Deactivating a cell removes any walls and start point attached to it.
+    if (!active) {
+      setWalls((prev) => {
+        let changed = false;
         const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
+        for (const key of prev) {
+          if (edgeTouchesVertex(key, id)) {
+            next.delete(key);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
       });
 
-      // Deactivating a cell removes any walls attached to it.
-      if (wasActive) {
-        setWalls((prev) => {
-          let changed = false;
-          const next = new Set(prev);
-          for (const key of prev) {
-            if (edgeTouchesVertex(key, id)) {
-              next.delete(key);
-              changed = true;
-            }
-          }
-          return changed ? next : prev;
-        });
-      }
+      setStartPoints((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
+
+  const setWallActive = useCallback(
+    (key: string, a: string, b: string, active: boolean) => {
+      if (!activeVertices.has(a) || !activeVertices.has(b)) return;
+
+      setWalls((prev) => {
+        if (prev.has(key) === active) return prev;
+        const next = new Set(prev);
+        if (active) next.add(key);
+        else next.delete(key);
+        return next;
+      });
     },
     [activeVertices],
   );
 
-  const toggleEdge = useCallback(
-    (key: string, a: string, b: string) => {
-      if (!activeVertices.has(a) || !activeVertices.has(b)) return;
+  const setStartPointActive = useCallback(
+    (id: string, active: boolean) => {
+      if (active && !activeVertices.has(id)) return;
 
-      setWalls((prev) => {
+      setStartPoints((prev) => {
+        if (prev.has(id) === active) return prev;
         const next = new Set(prev);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
+        if (active) next.add(id);
+        else next.delete(id);
         return next;
       });
     },
@@ -74,7 +96,18 @@ export function useBoardState(initialCols: number, initialRows: number): BoardSt
     setRows(clampedRows);
     setActiveVertices(new Set());
     setWalls(new Set());
+    setStartPoints(new Set());
   }, []);
 
-  return { cols, rows, activeVertices, walls, toggleVertex, toggleEdge, resize };
+  return {
+    cols,
+    rows,
+    activeVertices,
+    walls,
+    startPoints,
+    setVertexActive,
+    setWallActive,
+    setStartPointActive,
+    resize,
+  };
 }

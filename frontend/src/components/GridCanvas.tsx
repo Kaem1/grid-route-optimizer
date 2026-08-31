@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { type BoardSnapshot, type EditTool, GridRenderer } from "../rendering/GridRenderer";
+import { type BoardSnapshot, type EditTool, GridRenderer, type SimulationVisual } from "../rendering/GridRenderer";
 
 export interface GridCanvasHandle {
   zoomIn: () => void;
@@ -12,13 +12,14 @@ interface GridCanvasProps {
   snapshot: BoardSnapshot;
   editable: boolean;
   tool: EditTool;
+  simulation: SimulationVisual | null;
   onVertexPaint: (id: string, active: boolean) => void;
   onEdgePaint: (key: string, a: string, b: string, active: boolean) => void;
   onStartPointPaint: (id: string, active: boolean) => void;
 }
 
 export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function GridCanvas(
-  { snapshot, editable, tool, onVertexPaint, onEdgePaint, onStartPointPaint },
+  { snapshot, editable, tool, simulation, onVertexPaint, onEdgePaint, onStartPointPaint },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +56,7 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
       renderer.update(snapshot);
       renderer.setEditable(editable);
       renderer.setTool(tool);
+      renderer.updateSimulation(simulation);
       renderer.fitToGrid();
       rendererRef.current = renderer;
     });
@@ -87,6 +89,10 @@ export const GridCanvas = forwardRef<GridCanvasHandle, GridCanvasProps>(function
   useEffect(() => {
     rendererRef.current?.setTool(tool);
   }, [tool]);
+
+  useEffect(() => {
+    rendererRef.current?.updateSimulation(simulation);
+  }, [simulation]);
 
   return <div ref={containerRef} className="grid-canvas" />;
 });

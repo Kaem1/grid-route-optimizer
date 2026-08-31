@@ -10,11 +10,23 @@ const MAX_SCALE = 4;
 const WALL_THICKNESS = CELL_SIZE * 0.34;
 
 const COLOR_GRID_LINE = 0x333333;
-const COLOR_CELL_ACTIVE = 0x2f6fed;
-const COLOR_WALL = 0xff5544;
+const COLOR_CELL_ACTIVE = 0xced3da;
+const COLOR_WALL = 0x585d66;
 const COLOR_HOVER = 0xffffff;
 const COLOR_START = 0xffd23f;
 const START_RADIUS = CELL_SIZE * 0.3;
+
+// How strongly a cell's visited-overlay color intensifies with repeat visits
+// (by the same or different agents), capped so it never fully hides the grid.
+const VISIT_BASE_ALPHA = 0.28;
+const VISIT_ALPHA_STEP = 0.14;
+const VISIT_MAX_ALPHA = 0.85;
+
+const TRAIL_WIDTH = CELL_SIZE * 0.06;
+const TRAIL_ALPHA = 0.45;
+
+const AGENT_RADIUS = CELL_SIZE * 0.2;
+const AGENT_STROKE_COLOR = 0x1a1a1a;
 
 export type EditTool = "select" | "start";
 
@@ -24,6 +36,16 @@ export interface BoardSnapshot {
   activeVertices: ReadonlySet<string>;
   walls: ReadonlySet<string>;
   startPoints: ReadonlySet<string>;
+}
+
+// Playback visual for one simulation step: which cells have been visited (and
+// how intensely), the trail segments walked so far, and each agent's current
+// position. GridRenderer only draws this; the step engine lives in
+// frontend/src/state/useSimulation.ts.
+export interface SimulationVisual {
+  visited: ReadonlyMap<string, { color: number; count: number }>;
+  trail: ReadonlyArray<{ from: string; to: string; color: number }>;
+  agents: ReadonlyArray<{ id: number; vertex: string; color: number }>;
 }
 
 export interface GridRendererCallbacks {
@@ -76,11 +98,15 @@ export class GridRenderer {
   private readonly world = new Container();
   private readonly gridLayer = new Graphics();
   private readonly cellsLayer = new Graphics();
+  private readonly visitLayer = new Graphics();
   private readonly wallsLayer = new Graphics();
+  private readonly trailLayer = new Graphics();
   private readonly startLayer = new Graphics();
+  private readonly agentLayer = new Graphics();
   private readonly hoverLayer = new Graphics();
 
   private snapshot: BoardSnapshot = { cols: 0, rows: 0, activeVertices: new Set(), walls: new Set(), startPoints: new Set() };
+  private simulation: SimulationVisual | null = null;
 
   private scale = 1;
   private offsetX = 0;
@@ -124,7 +150,16 @@ export class GridRenderer {
 
     this.container.appendChild(this.app.canvas);
 
-    this.world.addChild(this.gridLayer, this.cellsLayer, this.wallsLayer, this.startLayer, this.hoverLayer);
+    this.world.addChild(
+      this.gridLayer,
+      this.cellsLayer,
+      this.visitLayer,
+      this.wallsLayer,
+      this.trailLayer,
+      this.startLayer,
+      this.agentLayer,
+      this.hoverLayer,
+    );
     this.app.stage.addChild(this.world);
 
     this.app.stage.eventMode = "static";
@@ -155,6 +190,16 @@ export class GridRenderer {
   update(snapshot: BoardSnapshot): void {
     this.snapshot = snapshot;
     this.draw();
+  }
+
+  // Called every simulation step (and with null when playback ends/hasn't
+  // started) to update the visited/trail/agent overlay without touching the
+  // board layers, which only change when the board itself is edited.
+  updateSimulation(visual: SimulationVisual | null): void {
+    this.simulation = visual;
+    this.drawVisited();
+    this.drawTrail();
+    this.drawAgents();
   }
 
   // Toggling out of edit mode cancels any in-progress paint stroke and clears hover.
@@ -412,8 +457,11 @@ export class GridRenderer {
   private draw(): void {
     this.drawGrid();
     this.drawCells();
+    this.drawVisited();
     this.drawWalls();
+    this.drawTrail();
     this.drawStartPoints();
+    this.drawAgents();
     this.drawHover();
   }
 
@@ -471,6 +519,75 @@ export class GridRenderer {
       this.startLayer.circle(cx, cy, START_RADIUS);
     }
     this.startLayer.fill({ color: COLOR_START });
+  }
+
+  // Cumulative "heatmap" of every cell any agent has stepped on so far: color
+  // is the average of every visiting agent's color (a cheap, good-enough color
+  // fusion for overlapping routes), alpha ramps up with repeat visits.
+  private drawVisited(): void {
+    this.visitLayer.clear();
+    if (!this.simulation) return;
+
+    for (const [id, { color, count }] of this.simulation.visited) {
+      const [x, y] = parseVertexId(id);
+      const alpha = Math.min(VISIT_MAX_ALPHA, VISIT_BASE_ALPHA + VISIT_ALPHA_STEP * (count - 1));
+      this.visitLayer.rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE).fill({ color, alpha });
+    }
+  }
+
+  // Each segment is stroked independently so overlapping trails from
+  // different agents blend via alpha compositing instead of one hiding
+  // another.
+  private drawTrail(): void {
+    this.trailLayer.clear();
+    if (!this.simulation) return;
+
+    for (const segment of this.simulation.trail) {
+      const [ax, ay] = parseVertexId(segment.from);
+      const [bx, by] = parseVertexId(segment.to);
+      const startX = ax * CELL_SIZE + CELL_SIZE / 2;
+      const startY = ay * CELL_SIZE + CELL_SIZE / 2;
+      const endX = bx * CELL_SIZE + CELL_SIZE / 2;
+      const endY = by * CELL_SIZE + CELL_SIZE / 2;
+      this.trailLayer
+        .moveTo(startX, startY)
+        .lineTo(endX, endY)
+        .stroke({ width: TRAIL_WIDTH, color: segment.color, alpha: TRAIL_ALPHA, cap: "round" });
+    }
+  }
+
+  // Agents sharing a cell are arranged in a small ring instead of stacking
+  // exactly on top of each other, so every one of them stays visible.
+  private drawAgents(): void {
+    this.agentLayer.clear();
+    if (!this.simulation) return;
+
+    const byVertex = new Map<string, Array<{ id: number; color: number }>>();
+    for (const agent of this.simulation.agents) {
+      const list = byVertex.get(agent.vertex);
+      if (list) list.push(agent);
+      else byVertex.set(agent.vertex, [agent]);
+    }
+
+    for (const [vertexId, agents] of byVertex) {
+      const [x, y] = parseVertexId(vertexId);
+      const cx = x * CELL_SIZE + CELL_SIZE / 2;
+      const cy = y * CELL_SIZE + CELL_SIZE / 2;
+
+      const clustered = agents.length > 1;
+      const radius = clustered ? AGENT_RADIUS * 0.65 : AGENT_RADIUS;
+      const offset = clustered ? AGENT_RADIUS * 0.7 : 0;
+
+      agents.forEach((agent, i) => {
+        const angle = (2 * Math.PI * i) / agents.length;
+        const px = cx + offset * Math.cos(angle);
+        const py = cy + offset * Math.sin(angle);
+        this.agentLayer
+          .circle(px, py, radius)
+          .fill({ color: agent.color })
+          .stroke({ width: 1.5, color: AGENT_STROKE_COLOR, alpha: 0.6 });
+      });
+    }
   }
 
   private drawHover(): void {

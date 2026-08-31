@@ -1,20 +1,27 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { getAlgorithms, runSimulation } from "./api/simulationApi";
 import { GridCanvas, type GridCanvasHandle } from "./components/GridCanvas";
 import type { EditTool } from "./rendering/GridRenderer";
 import { useBoardState } from "./state/useBoardState";
+import { useSimulation } from "./state/useSimulation";
 
 const DEFAULT_COLS = 24;
 const DEFAULT_ROWS = 16;
 
-type Mode = "menu" | "edit";
+type Mode = "menu" | "edit" | "simulation";
 
 function App() {
   const board = useBoardState(DEFAULT_COLS, DEFAULT_ROWS);
+  const simulation = useSimulation();
   const canvasRef = useRef<GridCanvasHandle>(null);
   const [backendStatus, setBackendStatus] = useState("Nie sprawdzono");
   const [mode, setMode] = useState<Mode>("menu");
   const [tool, setTool] = useState<EditTool>("select");
+  const [algorithms, setAlgorithms] = useState<string[]>([]);
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState("");
+  const [isStartingSimulation, setIsStartingSimulation] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
 
   const snapshot = useMemo(
     () => ({
@@ -27,10 +34,52 @@ function App() {
     [board.cols, board.rows, board.activeVertices, board.walls, board.startPoints],
   );
 
+  useEffect(() => {
+    getAlgorithms()
+      .then((response) => {
+        setAlgorithms(response.algorithms);
+        setSelectedAlgorithm((current) => current || response.algorithms[0] || "");
+      })
+      .catch((error) => console.error("Failed to load algorithms", error));
+  }, []);
+
   const exitEditMode = useCallback(() => {
     setTool("select");
     setMode("menu");
   }, []);
+
+  const canRunSimulation =
+    board.activeVertices.size > 0 && board.startPoints.size > 0 && selectedAlgorithm !== "" && !isStartingSimulation;
+
+  const handleRunSimulation = useCallback(async () => {
+    if (!canRunSimulation) return;
+
+    setIsStartingSimulation(true);
+    setSimulationError(null);
+    try {
+      const response = await runSimulation(
+        {
+          cols: board.cols,
+          rows: board.rows,
+          activeVertices: Array.from(board.activeVertices),
+          walls: Array.from(board.walls),
+        },
+        Array.from(board.startPoints),
+        selectedAlgorithm,
+      );
+      simulation.start(response);
+      setMode("simulation");
+    } catch (error) {
+      setSimulationError(error instanceof Error ? error.message : "Nie udało się uruchomić symulacji");
+    } finally {
+      setIsStartingSimulation(false);
+    }
+  }, [canRunSimulation, board.cols, board.rows, board.activeVertices, board.walls, board.startPoints, selectedAlgorithm, simulation]);
+
+  const handleEndSimulation = useCallback(() => {
+    simulation.stop();
+    setMode("menu");
+  }, [simulation]);
 
   const checkBackend = useCallback(async () => {
     try {
@@ -57,7 +106,7 @@ function App() {
 
       <div className="workspace">
         <aside className="side-panel">
-          {mode === "menu" ? (
+          {mode === "menu" && (
             <>
               <section>
                 <h2>Plansza</h2>
@@ -68,10 +117,20 @@ function App() {
 
               <section>
                 <h2>Algorytm</h2>
-                <select disabled defaultValue="">
-                  <option value="" disabled>
-                    Wkrótce dostępne
-                  </option>
+                <select
+                  value={selectedAlgorithm}
+                  disabled={algorithms.length === 0}
+                  onChange={(e) => setSelectedAlgorithm(e.target.value)}
+                >
+                  {algorithms.length === 0 ? (
+                    <option value="">Ładowanie…</option>
+                  ) : (
+                    algorithms.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))
+                  )}
                 </select>
               </section>
 
@@ -86,12 +145,18 @@ function App() {
 
               <section>
                 <h2>Symulacja</h2>
-                <button disabled title="Backend jeszcze niedostępny">
-                  Uruchom symulację
+                <button onClick={handleRunSimulation} disabled={!canRunSimulation}>
+                  {isStartingSimulation ? "Obliczanie…" : "Uruchom symulację"}
                 </button>
+                {!canRunSimulation && !isStartingSimulation && (
+                  <p className="hint">Zaznacz kratki i dodaj co najmniej jeden punkt startowy w edytorze.</p>
+                )}
+                {simulationError && <p className="hint hint-error">{simulationError}</p>}
               </section>
             </>
-          ) : (
+          )}
+
+          {mode === "edit" && (
             <>
               <section>
                 <h2>Edycja planszy</h2>
@@ -153,6 +218,56 @@ function App() {
             </>
           )}
 
+          {mode === "simulation" && (
+            <>
+              <section>
+                <h2>Symulacja</h2>
+                <p className="hint">Algorytm: {simulation.algorithm}</p>
+                <p className="hint">
+                  Krok {simulation.step} / {simulation.maxStep}
+                </p>
+                <div className="tool-buttons">
+                  <button onClick={simulation.stepBackward} disabled={simulation.step === 0}>
+                    ◀ Wstecz
+                  </button>
+                  <button onClick={simulation.stepForward} disabled={simulation.step >= simulation.maxStep}>
+                    Dalej ▶
+                  </button>
+                </div>
+                <button
+                  className={simulation.isPlaying ? "primary-button" : undefined}
+                  onClick={simulation.togglePlay}
+                  disabled={simulation.step >= simulation.maxStep && !simulation.isPlaying}
+                >
+                  {simulation.isPlaying ? "Pauza" : "Odtwarzaj"}
+                </button>
+                <label className="speed-label">
+                  Szybkość ({simulation.speed} {simulation.speed === 1 ? "krok/s" : "kroki/s"})
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={simulation.speed}
+                    onChange={(e) => simulation.setSpeed(Number(e.target.value))}
+                  />
+                </label>
+                <button onClick={handleEndSimulation}>Zakończ symulację</button>
+              </section>
+
+              {simulation.metrics && (
+                <section>
+                  <h2>Statystyki</h2>
+                  <ul className="legend">
+                    <li>Trasy: {simulation.metrics.numberOfRoutes}</li>
+                    <li>Łączna długość: {simulation.metrics.totalLength}</li>
+                    <li>Pokryte kratki: {simulation.metrics.coveredVertices}</li>
+                    <li>Pokrycie: {(simulation.metrics.coverageRatio * 100).toFixed(0)}%</li>
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
+
           <section>
             <h2>Widok</h2>
             <div className="view-buttons">
@@ -185,6 +300,7 @@ function App() {
             snapshot={snapshot}
             editable={mode === "edit"}
             tool={tool}
+            simulation={mode === "simulation" ? simulation.snapshot : null}
             onVertexPaint={board.setVertexActive}
             onEdgePaint={board.setWallActive}
             onStartPointPaint={board.setStartPointActive}

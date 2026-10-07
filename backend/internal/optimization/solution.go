@@ -12,6 +12,14 @@ type Metrics struct {
 	NumberOfRoutes  int
 	CoveredVertices int
 	CoverageRatio   float64
+	// Makespan is the longest single route length (max_i L_i), the primary
+	// optimization objective (algorithm spec section 1).
+	Makespan int
+	// LowerBound is LowerBoundGlobal(problem) — a partition-independent
+	// bound on the makespan (algorithms_patch.md section 5).
+	LowerBound int
+	// Gap is (Makespan-LowerBound)/LowerBound, 0 when LowerBound <= 0.
+	Gap float64
 }
 
 // Solution is the result of running an Algorithm on a Problem (see project

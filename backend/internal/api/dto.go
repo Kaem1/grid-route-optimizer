@@ -18,9 +18,10 @@ type GridDTO struct {
 // SimulateRequest is the payload sent when the user starts a simulation:
 // the board, the chosen algorithm, and the agents' start points.
 type SimulateRequest struct {
-	Grid        GridDTO  `json:"grid"`
-	StartPoints []string `json:"startPoints"`
-	Algorithm   string   `json:"algorithm"`
+	Grid          GridDTO  `json:"grid"`
+	StartPoints   []string `json:"startPoints"`
+	Algorithm     string   `json:"algorithm"`
+	ReturnToStart bool     `json:"returnToStart"`
 }
 
 // RouteDTO is one agent's computed walk.
@@ -36,6 +37,9 @@ type MetricsDTO struct {
 	NumberOfRoutes  int     `json:"numberOfRoutes"`
 	CoveredVertices int     `json:"coveredVertices"`
 	CoverageRatio   float64 `json:"coverageRatio"`
+	Makespan        int     `json:"makespan"`
+	LowerBound      int     `json:"lowerBound"`
+	Gap             float64 `json:"gap"`
 }
 
 // SimulateResponse is returned once the requested algorithm has finished.

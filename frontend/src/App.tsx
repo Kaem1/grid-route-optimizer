@@ -20,6 +20,7 @@ function App() {
   const [tool, setTool] = useState<EditTool>("select");
   const [algorithms, setAlgorithms] = useState<string[]>([]);
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("");
+  const [returnToStart, setReturnToStart] = useState(false);
   const [isStartingSimulation, setIsStartingSimulation] = useState(false);
   const [simulationError, setSimulationError] = useState<string | null>(null);
 
@@ -66,6 +67,7 @@ function App() {
         },
         Array.from(board.startPoints),
         selectedAlgorithm,
+        returnToStart,
       );
       simulation.start(response);
       setMode("simulation");
@@ -74,7 +76,17 @@ function App() {
     } finally {
       setIsStartingSimulation(false);
     }
-  }, [canRunSimulation, board.cols, board.rows, board.activeVertices, board.walls, board.startPoints, selectedAlgorithm, simulation]);
+  }, [
+    canRunSimulation,
+    board.cols,
+    board.rows,
+    board.activeVertices,
+    board.walls,
+    board.startPoints,
+    selectedAlgorithm,
+    returnToStart,
+    simulation,
+  ]);
 
   const handleEndSimulation = useCallback(() => {
     simulation.stop();
@@ -132,6 +144,14 @@ function App() {
                     ))
                   )}
                 </select>
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={returnToStart}
+                    onChange={(e) => setReturnToStart(e.target.checked)}
+                  />
+                  {" "}Powrót do punktu startowego
+                </label>
               </section>
 
               <section>
@@ -260,6 +280,9 @@ function App() {
                   <ul className="legend">
                     <li>Trasy: {simulation.metrics.numberOfRoutes}</li>
                     <li>Łączna długość: {simulation.metrics.totalLength}</li>
+                    <li>Najdłuższa trasa (makespan): {simulation.metrics.makespan}</li>
+                    <li>Dolne ograniczenie: {simulation.metrics.lowerBound}</li>
+                    <li>Odstęp od ograniczenia (gap): {(simulation.metrics.gap * 100).toFixed(0)}%</li>
                     <li>Pokryte kratki: {simulation.metrics.coveredVertices}</li>
                     <li>Pokrycie: {(simulation.metrics.coverageRatio * 100).toFixed(0)}%</li>
                   </ul>

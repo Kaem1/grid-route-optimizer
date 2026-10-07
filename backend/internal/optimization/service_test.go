@@ -8,7 +8,7 @@ import (
 )
 
 func newService() *optimization.Service {
-	registry := optimization.NewRegistry(optimization.DFSCoverage{})
+	registry := optimization.NewRegistry(optimization.VoronoiTree{})
 	return optimization.NewService(registry)
 }
 
@@ -19,7 +19,7 @@ func TestServiceSimulateHappyPath(t *testing.T) {
 		ActiveVertices: []string{"0,0", "1,0"},
 	}
 
-	solution, err := newService().Simulate(spec, []string{"0,0"}, "dfs-coverage")
+	solution, err := newService().Simulate(spec, []string{"0,0"}, "voronoi-tree", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestServiceSimulateHappyPath(t *testing.T) {
 
 func TestServiceSimulateRejectsUnknownAlgorithm(t *testing.T) {
 	spec := grid.GridSpec{Cols: 1, Rows: 1, ActiveVertices: []string{"0,0"}}
-	_, err := newService().Simulate(spec, []string{"0,0"}, "does-not-exist")
+	_, err := newService().Simulate(spec, []string{"0,0"}, "does-not-exist", false)
 	if err == nil {
 		t.Fatal("expected an error for an unknown algorithm")
 	}
@@ -38,7 +38,7 @@ func TestServiceSimulateRejectsUnknownAlgorithm(t *testing.T) {
 
 func TestServiceSimulateRejectsStartPointOutsideBoard(t *testing.T) {
 	spec := grid.GridSpec{Cols: 2, Rows: 1, ActiveVertices: []string{"0,0"}}
-	_, err := newService().Simulate(spec, []string{"1,0"}, "dfs-coverage")
+	_, err := newService().Simulate(spec, []string{"1,0"}, "voronoi-tree", false)
 	if err == nil {
 		t.Fatal("expected an error for a start point that is not an active cell")
 	}
@@ -46,7 +46,7 @@ func TestServiceSimulateRejectsStartPointOutsideBoard(t *testing.T) {
 
 func TestServiceSimulateRejectsEmptyStartPoints(t *testing.T) {
 	spec := grid.GridSpec{Cols: 1, Rows: 1, ActiveVertices: []string{"0,0"}}
-	_, err := newService().Simulate(spec, nil, "dfs-coverage")
+	_, err := newService().Simulate(spec, nil, "voronoi-tree", false)
 	if err == nil {
 		t.Fatal("expected an error when no start points are provided")
 	}

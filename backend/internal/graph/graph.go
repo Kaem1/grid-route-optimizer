@@ -116,3 +116,24 @@ func (g *Graph) Neighbors(id VertexID) []VertexID {
 
 	return out
 }
+
+// Vertices returns every vertex in the graph, sorted by (Y,X,ID) for
+// deterministic iteration (matching Neighbors' ordering convention).
+func (g *Graph) Vertices() []Vertex {
+	out := make([]Vertex, 0, len(g.vertices))
+	for _, v := range g.vertices {
+		out = append(out, v)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Y != out[j].Y {
+			return out[i].Y < out[j].Y
+		}
+		if out[i].X != out[j].X {
+			return out[i].X < out[j].X
+		}
+		return out[i].ID < out[j].ID
+	})
+
+	return out
+}

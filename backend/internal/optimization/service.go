@@ -29,7 +29,7 @@ func (s *Service) AlgorithmNames() []string {
 // Simulate validates the grid/start points, builds the domain graph, and
 // runs the requested algorithm against it. The backend never trusts data
 // coming from the frontend at face value (section 47).
-func (s *Service) Simulate(spec grid.GridSpec, startPointIDs []string, algorithmName string) (Solution, error) {
+func (s *Service) Simulate(spec grid.GridSpec, startPointIDs []string, algorithmName string, returnToStart bool) (Solution, error) {
 	algorithm, ok := s.registry.Get(algorithmName)
 	if !ok {
 		return Solution{}, fmt.Errorf("unknown algorithm %q", algorithmName)
@@ -53,5 +53,5 @@ func (s *Service) Simulate(spec grid.GridSpec, startPointIDs []string, algorithm
 		startPoints = append(startPoints, vid)
 	}
 
-	return algorithm.Solve(Problem{Graph: g, StartPoints: startPoints})
+	return algorithm.Solve(Problem{Graph: g, StartPoints: startPoints, ReturnToStart: returnToStart})
 }

@@ -15,7 +15,16 @@ const (
 )
 
 func main() {
-	registry := optimization.NewRegistry(optimization.DFSCoverage{})
+	// Register additional methods (M3, M6 from the algorithm spec need a
+	// CP-SAT binding, M5 needs a VRP solver — none wired into the project)
+	// here as they are implemented; the API/frontend already list whatever
+	// is registered without further changes.
+	registry := optimization.NewRegistry(
+		optimization.VoronoiTree{},
+		optimization.WeightedVoronoi{},
+		optimization.LocalSearch{},
+		optimization.TSPBaseline{},
+	)
 	service := optimization.NewService(registry)
 	server := api.NewServer(service, allowedOrigin)
 

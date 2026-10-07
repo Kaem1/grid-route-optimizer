@@ -13,4 +13,10 @@ import "grid-route-optimizer/internal/graph"
 type Problem struct {
 	Graph       *graph.Graph
 	StartPoints []graph.VertexID
+	// ReturnToStart requires every route to end back at its start point
+	// (algorithm spec section 1).
+	ReturnToStart bool
+	// Seed initializes any random generator a method needs (e.g. M4's
+	// simulated annealing); the zero value is a valid, deterministic seed.
+	Seed int64
 }

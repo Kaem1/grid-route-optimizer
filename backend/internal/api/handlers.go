@@ -107,7 +107,7 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		Walls:          req.Grid.Walls,
 	}
 
-	solution, err := s.simulation.Simulate(spec, req.StartPoints, req.Algorithm)
+	solution, err := s.simulation.Simulate(spec, req.StartPoints, req.Algorithm, req.ReturnToStart)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -138,6 +138,9 @@ func toSimulateResponse(algorithm string, solution optimization.Solution) Simula
 			NumberOfRoutes:  solution.Metrics.NumberOfRoutes,
 			CoveredVertices: solution.Metrics.CoveredVertices,
 			CoverageRatio:   solution.Metrics.CoverageRatio,
+			Makespan:        solution.Metrics.Makespan,
+			LowerBound:      solution.Metrics.LowerBound,
+			Gap:             solution.Metrics.Gap,
 		},
 	}
 }

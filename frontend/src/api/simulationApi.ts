@@ -20,6 +20,9 @@ export interface MetricsDTO {
   numberOfRoutes: number;
   coveredVertices: number;
   coverageRatio: number;
+  makespan: number;
+  lowerBound: number;
+  gap: number;
 }
 
 export interface SimulateResponse {
@@ -36,6 +39,11 @@ export function getAlgorithms(): Promise<AlgorithmsResponse> {
   return apiGet<AlgorithmsResponse>("/api/algorithms");
 }
 
-export function runSimulation(grid: GridDTO, startPoints: string[], algorithm: string): Promise<SimulateResponse> {
-  return apiPost<SimulateResponse>("/api/simulate", { grid, startPoints, algorithm });
+export function runSimulation(
+  grid: GridDTO,
+  startPoints: string[],
+  algorithm: string,
+  returnToStart: boolean,
+): Promise<SimulateResponse> {
+  return apiPost<SimulateResponse>("/api/simulate", { grid, startPoints, algorithm, returnToStart });
 }
